@@ -154,6 +154,31 @@ export async function syncSlackChannel(channelId: string) {
   let reactionsUpdated = 0;
   const errors: string[] = [];
 
+  // Pre-load all known users to avoid repeated DB lookups
+  const knownUsers = new Map<string, string>();
+  const existingUsers = await prisma.user.findMany({ select: { slackId: true, id: true } });
+  for (const u of existingUsers) knownUsers.set(u.slackId, u.id);
+
+  async function ensureUser(slackId: string): Promise<string> {
+    const cached = knownUsers.get(slackId);
+    if (cached) return cached;
+
+    let user = await prisma.user.findUnique({ where: { slackId } });
+    if (!user) {
+      const info = await getUserInfo(slackId);
+      user = await prisma.user.create({
+        data: {
+          slackId,
+          displayName: info?.displayName || "Unknown User",
+          realName: info?.realName,
+          avatarUrl: info?.avatarUrl,
+        },
+      });
+    }
+    knownUsers.set(slackId, user.id);
+    return user.id;
+  }
+
   try {
     const messages = await fetchChannelMessages(channelId);
     messagesProcessed = messages.length;
@@ -171,36 +196,22 @@ export async function syncSlackChannel(channelId: string) {
 
         photosFound += mediaFiles.length;
 
-        let user = await prisma.user.findUnique({
-          where: { slackId: msg.user },
-        });
-
-        if (!user) {
-          const userInfo = await getUserInfo(msg.user);
-          user = await prisma.user.create({
-            data: {
-              slackId: msg.user,
-              displayName: userInfo?.displayName || "Unknown User",
-              realName: userInfo?.realName,
-              avatarUrl: userInfo?.avatarUrl,
-            },
-          });
-        }
+        const userId = await ensureUser(msg.user);
 
         let slackPost = await prisma.slackPost.findUnique({
           where: { slackMessageTs: msg.ts },
         });
 
-        const permalink = await getMessagePermalink(channelId, msg.ts);
         const postedAt = new Date(parseFloat(msg.ts) * 1000);
 
         if (!slackPost) {
+          const permalink = await getMessagePermalink(channelId, msg.ts);
           slackPost = await prisma.slackPost.create({
             data: {
               slackMessageTs: msg.ts,
               channelId,
               threadTs: msg.thread_ts,
-              userId: user.id,
+              userId,
               caption: msg.text || null,
               slackPermalink: permalink,
               postedAt,
@@ -212,32 +223,39 @@ export async function syncSlackChannel(channelId: string) {
             where: { id: slackPost.id },
             data: {
               caption: msg.text || slackPost.caption,
-              slackPermalink: permalink || slackPost.slackPermalink,
             },
           });
         }
 
+        // Fetch reactions once per message, not per file
+        const reactions = await getMessageReactions(channelId, msg.ts);
+
+        const slackReactionKeys = new Set<string>();
+        const slackVoterIds = new Set<string>();
+        for (const reaction of reactions) {
+          for (const reactUserId of reaction.users) {
+            slackReactionKeys.add(`${reactUserId}:${reaction.name}`);
+            slackVoterIds.add(reactUserId);
+          }
+        }
+
+        // Ensure all reaction users exist (batch)
+        for (const uid of slackVoterIds) {
+          await ensureUser(uid);
+        }
+
+        const entryIds: string[] = [];
+
         for (let i = 0; i < mediaFiles.length; i++) {
           const file = mediaFiles[i];
           const existingEntry = await prisma.photoEntry.findFirst({
-            where: {
-              slackPostId: slackPost.id,
-              imageIndex: i,
-            },
+            where: { slackPostId: slackPost.id, imageIndex: i },
           });
 
-          let entryId: string;
-
           if (!existingEntry) {
-            const mediaType = file.mimetype?.startsWith("video/")
-              ? "video"
-              : "image";
+            const mediaType = file.mimetype?.startsWith("video/") ? "video" : "image";
             const thumbnail =
-              file.thumb_video ||
-              file.thumb_720 ||
-              file.thumb_480 ||
-              file.thumb_360 ||
-              null;
+              file.thumb_video || file.thumb_720 || file.thumb_480 || file.thumb_360 || null;
             const entry = await prisma.photoEntry.create({
               data: {
                 slackPostId: slackPost.id,
@@ -248,51 +266,26 @@ export async function syncSlackChannel(channelId: string) {
                 caption: msg.text || null,
               },
             });
-            entryId = entry.id;
+            entryIds.push(entry.id);
             newPhotos++;
           } else {
-            entryId = existingEntry.id;
             await prisma.photoEntry.update({
-              where: { id: entryId },
+              where: { id: existingEntry.id },
               data: {
                 imageUrl: file.url_private,
                 thumbnailUrl:
-                  file.thumb_video ||
-                  file.thumb_720 ||
-                  file.thumb_480 ||
-                  file.thumb_360 ||
-                  existingEntry.thumbnailUrl,
+                  file.thumb_video || file.thumb_720 || file.thumb_480 ||
+                  file.thumb_360 || existingEntry.thumbnailUrl,
               },
             });
+            entryIds.push(existingEntry.id);
           }
+        }
 
-          const reactions = await getMessageReactions(channelId, msg.ts);
-
-          // Build a set of current reactions from Slack for diffing
-          const slackReactionKeys = new Set<string>();
-          const slackVoterIds = new Set<string>();
-
+        // Sync reactions for all entries of this message
+        for (const entryId of entryIds) {
           for (const reaction of reactions) {
             for (const reactUserId of reaction.users) {
-              slackReactionKeys.add(`${reactUserId}:${reaction.name}`);
-              slackVoterIds.add(reactUserId);
-
-              let reactUser = await prisma.user.findUnique({
-                where: { slackId: reactUserId },
-              });
-              if (!reactUser) {
-                const reactUserInfo = await getUserInfo(reactUserId);
-                reactUser = await prisma.user.create({
-                  data: {
-                    slackId: reactUserId,
-                    displayName:
-                      reactUserInfo?.displayName || "Unknown User",
-                    realName: reactUserInfo?.realName,
-                    avatarUrl: reactUserInfo?.avatarUrl,
-                  },
-                });
-              }
-
               await prisma.reaction.upsert({
                 where: {
                   photoEntryId_slackUserId_emoji: {
@@ -301,50 +294,37 @@ export async function syncSlackChannel(channelId: string) {
                     emoji: reaction.name,
                   },
                 },
-                create: {
-                  photoEntryId: entryId,
-                  slackUserId: reactUserId,
-                  emoji: reaction.name,
-                },
+                create: { photoEntryId: entryId, slackUserId: reactUserId, emoji: reaction.name },
                 update: {},
               });
-              reactionsUpdated++;
 
               await prisma.uniqueVote.upsert({
                 where: {
-                  photoEntryId_slackUserId: {
-                    photoEntryId: entryId,
-                    slackUserId: reactUserId,
-                  },
+                  photoEntryId_slackUserId: { photoEntryId: entryId, slackUserId: reactUserId },
                 },
-                create: {
-                  photoEntryId: entryId,
-                  slackUserId: reactUserId,
-                },
+                create: { photoEntryId: entryId, slackUserId: reactUserId },
                 update: {},
               });
             }
           }
+          reactionsUpdated += slackReactionKeys.size;
 
-          // Remove reactions that no longer exist in Slack
-          const dbReactions = await prisma.reaction.findMany({
-            where: { photoEntryId: entryId },
-          });
-          for (const dbReaction of dbReactions) {
-            const key = `${dbReaction.slackUserId}:${dbReaction.emoji}`;
-            if (!slackReactionKeys.has(key)) {
-              await prisma.reaction.delete({ where: { id: dbReaction.id } });
-            }
+          // Remove stale reactions
+          const dbReactions = await prisma.reaction.findMany({ where: { photoEntryId: entryId } });
+          const staleReactionIds = dbReactions
+            .filter((r) => !slackReactionKeys.has(`${r.slackUserId}:${r.emoji}`))
+            .map((r) => r.id);
+          if (staleReactionIds.length > 0) {
+            await prisma.reaction.deleteMany({ where: { id: { in: staleReactionIds } } });
           }
 
-          // Remove unique votes from users who no longer have any reaction
-          const dbVotes = await prisma.uniqueVote.findMany({
-            where: { photoEntryId: entryId },
-          });
-          for (const vote of dbVotes) {
-            if (!slackVoterIds.has(vote.slackUserId)) {
-              await prisma.uniqueVote.delete({ where: { id: vote.id } });
-            }
+          // Remove stale votes
+          const dbVotes = await prisma.uniqueVote.findMany({ where: { photoEntryId: entryId } });
+          const staleVoteIds = dbVotes
+            .filter((v) => !slackVoterIds.has(v.slackUserId))
+            .map((v) => v.id);
+          if (staleVoteIds.length > 0) {
+            await prisma.uniqueVote.deleteMany({ where: { id: { in: staleVoteIds } } });
           }
         }
       } catch (msgError) {
