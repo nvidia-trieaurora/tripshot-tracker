@@ -3,6 +3,8 @@ import { syncSlackChannel } from "@/lib/slack";
 import { recomputeAllScores } from "@/lib/scoring";
 import { prisma } from "@/lib/db";
 
+export const maxDuration = 60;
+
 let lastSyncTime = 0;
 const MIN_SYNC_INTERVAL = 30_000; // 30 seconds minimum between syncs
 
