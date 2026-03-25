@@ -14,9 +14,10 @@
     "postinstall": "prisma generate"
   },
   "dependencies": {
-    "@prisma/adapter-libsql": "^7.5.0",
+    "@prisma/adapter-better-sqlite3": "^7.5.0",
     "@prisma/client": "^7.5.0",
     "@slack/web-api": "^7.15.0",
+    "better-sqlite3": "^12.8.0",
     "canvas-confetti": "^1.9.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
