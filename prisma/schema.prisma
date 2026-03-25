@@ -1,0 +1,134 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id          String       @id @default(cuid())
+  slackId     String       @unique
+  displayName String
+  realName    String?
+  avatarUrl   String?
+  role        String       @default("VIEWER") // ADMIN | VIEWER
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  slackPosts  SlackPost[]
+  reactions   Reaction[]
+  uniqueVotes UniqueVote[]
+}
+
+model SlackPost {
+  id              String       @id @default(cuid())
+  slackMessageTs  String       @unique
+  channelId       String
+  threadTs        String?
+  userId          String
+  user            User         @relation(fields: [userId], references: [id])
+  caption         String?
+  slackPermalink  String?
+  postedAt        DateTime
+  rawText         String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  photoEntries    PhotoEntry[]
+}
+
+model PhotoEntry {
+  id                    String       @id @default(cuid())
+  slackPostId           String
+  slackPost             SlackPost    @relation(fields: [slackPostId], references: [id], onDelete: Cascade)
+  imageUrl              String
+  thumbnailUrl          String?
+  mediaType             String       @default("image") // "image" or "video"
+  imageIndex            Int          @default(0)
+  caption               String?
+  categoryTags          String?      // JSON array of category names
+  organizerCreativity   Float?
+  organizerEmotion      Float?
+  organizerStorytelling Float?
+  organizerScore        Float?       // Average of the three above
+  organizerNotes        String?
+  teamVotingScore       Float?       // Computed from unique voters
+  finalScore            Float?       // Weighted combination
+  isFeatured            Boolean      @default(false)
+  trendingScore         Float?       @default(0)
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+  reactions             Reaction[]
+  uniqueVotes           UniqueVote[]
+
+  @@index([slackPostId])
+  @@index([finalScore])
+}
+
+model Reaction {
+  id           String     @id @default(cuid())
+  photoEntryId String
+  photoEntry   PhotoEntry @relation(fields: [photoEntryId], references: [id], onDelete: Cascade)
+  slackUserId  String
+  user         User?      @relation(fields: [slackUserId], references: [slackId])
+  emoji        String
+  reactedAt    DateTime   @default(now())
+  createdAt    DateTime   @default(now())
+
+  @@unique([photoEntryId, slackUserId, emoji])
+  @@index([photoEntryId])
+  @@index([slackUserId])
+}
+
+model UniqueVote {
+  id           String     @id @default(cuid())
+  photoEntryId String
+  photoEntry   PhotoEntry @relation(fields: [photoEntryId], references: [id], onDelete: Cascade)
+  slackUserId  String
+  user         User?      @relation(fields: [slackUserId], references: [slackId])
+  createdAt    DateTime   @default(now())
+
+  @@unique([photoEntryId, slackUserId])
+  @@index([photoEntryId])
+}
+
+model ScoringConfig {
+  id              String @id @default("default")
+  votingWeight    Float  @default(70)
+  organizerWeight Float  @default(30)
+  maxOrganizerScore Float @default(10)
+  updatedAt       DateTime @updatedAt
+}
+
+model Category {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  description String?
+  emoji       String?
+  isActive    Boolean @default(true)
+}
+
+model SyncLog {
+  id                String   @id @default(cuid())
+  syncedAt          DateTime @default(now())
+  status            String   // SUCCESS | FAILED | IN_PROGRESS
+  messagesProcessed Int      @default(0)
+  photosFound       Int      @default(0)
+  newPhotos         Int      @default(0)
+  reactionsUpdated  Int      @default(0)
+  errors            String?
+  duration          Int?     // milliseconds
+}
+
+model AppSettings {
+  id               String   @id @default("default")
+  slackChannelId   String   @default("")
+  slackChannelName String   @default("#vrdc-thailandtrip")
+  contestName      String   @default("Capture the Trip!")
+  submissionDeadline DateTime?
+  votingDeadline   DateTime?
+  resultAnnouncementDate DateTime?
+  autoSyncEnabled  Boolean  @default(false)
+  autoSyncInterval Int      @default(300) // seconds
+  updatedAt        DateTime @updatedAt
+}
