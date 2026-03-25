@@ -267,8 +267,16 @@ export async function syncSlackChannel(channelId: string) {
           }
 
           const reactions = await getMessageReactions(channelId, msg.ts);
+
+          // Build a set of current reactions from Slack for diffing
+          const slackReactionKeys = new Set<string>();
+          const slackVoterIds = new Set<string>();
+
           for (const reaction of reactions) {
             for (const reactUserId of reaction.users) {
+              slackReactionKeys.add(`${reactUserId}:${reaction.name}`);
+              slackVoterIds.add(reactUserId);
+
               let reactUser = await prisma.user.findUnique({
                 where: { slackId: reactUserId },
               });
@@ -315,6 +323,27 @@ export async function syncSlackChannel(channelId: string) {
                 },
                 update: {},
               });
+            }
+          }
+
+          // Remove reactions that no longer exist in Slack
+          const dbReactions = await prisma.reaction.findMany({
+            where: { photoEntryId: entryId },
+          });
+          for (const dbReaction of dbReactions) {
+            const key = `${dbReaction.slackUserId}:${dbReaction.emoji}`;
+            if (!slackReactionKeys.has(key)) {
+              await prisma.reaction.delete({ where: { id: dbReaction.id } });
+            }
+          }
+
+          // Remove unique votes from users who no longer have any reaction
+          const dbVotes = await prisma.uniqueVote.findMany({
+            where: { photoEntryId: entryId },
+          });
+          for (const vote of dbVotes) {
+            if (!slackVoterIds.has(vote.slackUserId)) {
+              await prisma.uniqueVote.delete({ where: { id: vote.id } });
             }
           }
         }
