@@ -16,11 +16,19 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    const slackHeaders: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+    };
 
-    if (!res.ok) {
+    // Forward range header for video seeking support
+    const rangeHeader = request.headers.get("range");
+    if (rangeHeader) {
+      slackHeaders["Range"] = rangeHeader;
+    }
+
+    const res = await fetch(url, { headers: slackHeaders });
+
+    if (!res.ok && res.status !== 206) {
       return NextResponse.json(
         { error: `Slack returned ${res.status}` },
         { status: res.status }
@@ -28,13 +36,22 @@ export async function GET(request: NextRequest) {
     }
 
     const contentType = res.headers.get("content-type") || "application/octet-stream";
+    const contentLength = res.headers.get("content-length");
+    const contentRange = res.headers.get("content-range");
     const buffer = await res.arrayBuffer();
 
+    const responseHeaders: Record<string, string> = {
+      "Content-Type": contentType,
+      "Cache-Control": "public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400",
+      "Accept-Ranges": "bytes",
+    };
+
+    if (contentLength) responseHeaders["Content-Length"] = contentLength;
+    if (contentRange) responseHeaders["Content-Range"] = contentRange;
+
     return new NextResponse(buffer, {
-      headers: {
-        "Content-Type": contentType,
-        "Cache-Control": "public, max-age=86400, s-maxage=604800, stale-while-revalidate=86400",
-      },
+      status: res.status === 206 ? 206 : 200,
+      headers: responseHeaders,
     });
   } catch {
     return NextResponse.json({ error: "Failed to fetch file" }, { status: 500 });
