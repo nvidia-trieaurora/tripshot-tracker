@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = request.nextUrl;
@@ -8,7 +9,6 @@ export async function GET(request: NextRequest) {
     const participant = searchParams.get("participant");
     const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
     const limit = Math.min(100, Math.max(1, parseInt(searchParams.get("limit") || "20", 10)));
-    const skip = (page - 1) * limit;
 
     const where: Record<string, unknown> = {};
 
@@ -32,28 +32,48 @@ export async function GET(request: NextRequest) {
         orderBy = { createdAt: "desc" };
     }
 
-    const [photos, total] = await Promise.all([
-      prisma.photoEntry.findMany({
-        where,
-        orderBy,
-        skip,
-        take: limit,
-        include: {
-          slackPost: { include: { user: true } },
-          _count: { select: { uniqueVotes: true, reactions: true } },
-        },
-      }),
-      prisma.photoEntry.count({ where }),
-    ]);
+    const allPhotos = await prisma.photoEntry.findMany({
+      where,
+      orderBy,
+      include: {
+        slackPost: { include: { user: true } },
+        _count: { select: { uniqueVotes: true, reactions: true } },
+      },
+    });
+
+    // Group by slackPostId: 1 post = 1 gallery entry
+    const groupedMap = new Map<string, typeof allPhotos>();
+    for (const photo of allPhotos) {
+      const group = groupedMap.get(photo.slackPostId) || [];
+      group.push(photo);
+      groupedMap.set(photo.slackPostId, group);
+    }
+
+    const grouped = Array.from(groupedMap.values()).map((group) => {
+      const best = group.reduce((a, b) =>
+        (a.finalScore ?? 0) >= (b.finalScore ?? 0) ? a : b
+      );
+      return {
+        ...best,
+        photoCount: group.length,
+        siblingPhotos: group.map((e) => ({
+          id: e.id,
+          imageUrl: e.imageUrl,
+          thumbnailUrl: e.thumbnailUrl,
+          imageIndex: e.imageIndex,
+          mediaType: e.mediaType,
+        })),
+      };
+    });
+
+    const total = grouped.length;
+    const totalPages = Math.ceil(total / limit);
+    const skip = (page - 1) * limit;
+    const photos = grouped.slice(skip, skip + limit);
 
     return NextResponse.json({
       photos,
-      pagination: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
+      pagination: { page, limit, total, totalPages },
     });
   } catch (error) {
     return NextResponse.json(

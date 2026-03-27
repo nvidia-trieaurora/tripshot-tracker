@@ -122,6 +122,13 @@ export default function PhotoCard({
           </div>
         )}
 
+        {/* Multi-photo badge */}
+        {photo.photoCount > 1 && (
+          <div className="absolute top-3 left-3 bg-white/90 dark:bg-gray-900/90 backdrop-blur-sm text-gray-800 dark:text-gray-200 text-[10px] font-bold px-2 py-0.5 rounded-full shadow flex items-center gap-1">
+            📷 {photo.photoCount}
+          </div>
+        )}
+
         {/* Download button */}
         <button
           onClick={(e) => {

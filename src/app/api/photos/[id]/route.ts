@@ -66,10 +66,24 @@ export async function GET(
       votedAt: v.createdAt,
     }));
 
+    // Fetch sibling photos from the same Slack post
+    const siblingPhotos = await prisma.photoEntry.findMany({
+      where: { slackPostId: photo.slackPostId },
+      orderBy: { imageIndex: "asc" },
+      select: {
+        id: true,
+        imageUrl: true,
+        thumbnailUrl: true,
+        imageIndex: true,
+        mediaType: true,
+      },
+    });
+
     return NextResponse.json({
       ...photo,
       reactionBreakdown,
       voters: votersWithNames,
+      siblingPhotos,
     });
   } catch (error) {
     return NextResponse.json(

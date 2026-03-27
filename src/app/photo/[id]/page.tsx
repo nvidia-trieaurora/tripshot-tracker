@@ -14,6 +14,8 @@ import {
   Share2,
   Download,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Eye,
   Star,
 } from "lucide-react";
@@ -49,6 +51,7 @@ export default function PhotoDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [votersExpanded, setVotersExpanded] = useState(false);
   const [relatedPhotos, setRelatedPhotos] = useState<any[]>([]);
+  const [carouselIndex, setCarouselIndex] = useState(0);
 
   const fetchPhoto = useCallback(async () => {
     if (!id) return;
@@ -172,38 +175,87 @@ export default function PhotoDetailPage() {
           transition={{ duration: 0.5 }}
           className="flex flex-col lg:flex-row gap-8"
         >
-          {/* Photo/Video display */}
+          {/* Photo/Video display with carousel */}
           <div className="flex-1 lg:flex-[2]">
-            <div className="relative rounded-2xl overflow-hidden shadow-xl bg-gray-200 dark:bg-gray-800">
-              {photo.mediaType === "video" ? (
-                <video
-                  src={photo.imageUrl?.startsWith("https://files.slack.com/") ? `/api/slack/file?url=${encodeURIComponent(photo.imageUrl)}` : photo.imageUrl}
-                  controls
-                  className="w-full aspect-video object-contain bg-black"
-                  poster={photo.thumbnailUrl?.startsWith("https://files.slack.com/") ? `/api/slack/file?url=${encodeURIComponent(photo.thumbnailUrl)}` : undefined}
-                />
-              ) : (
-                <img
-                  src={photo.imageUrl?.startsWith("https://files.slack.com/") ? `/api/slack/file?url=${encodeURIComponent(photo.imageUrl)}` : photo.imageUrl}
-                  alt={caption}
-                  className="w-full aspect-auto max-h-[600px] object-contain"
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement;
-                    target.style.display = "none";
-                    target.parentElement!.classList.add("aspect-[4/3]", "bg-gradient-to-br", "from-orange-400", "to-rose-500");
-                    const fallback = document.createElement("p");
-                    fallback.className = "absolute inset-0 flex items-center justify-center text-white/90 text-center text-lg font-medium p-8";
-                    fallback.textContent = caption;
-                    target.parentElement!.appendChild(fallback);
-                  }}
-                />
-              )}
-              <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent p-6">
-                <p className="text-white text-sm font-medium drop-shadow line-clamp-2">
-                  {truncate(caption, 200)}
-                </p>
-              </div>
-            </div>
+            {(() => {
+              const siblings: any[] = (photo as any).siblingPhotos ?? [{ id: photo.id, imageUrl: photo.imageUrl, thumbnailUrl: photo.thumbnailUrl, mediaType: photo.mediaType, imageIndex: 0 }];
+              const current = siblings[carouselIndex] ?? siblings[0];
+              const slackUrl = (url: string | null | undefined) =>
+                url?.startsWith("https://files.slack.com/") ? `/api/slack/file?url=${encodeURIComponent(url)}` : url;
+
+              return (
+                <div>
+                  <div className="relative rounded-2xl overflow-hidden shadow-xl bg-gray-200 dark:bg-gray-800">
+                    {current.mediaType === "video" ? (
+                      <video
+                        key={current.id}
+                        src={slackUrl(current.imageUrl) ?? undefined}
+                        controls
+                        className="w-full aspect-video object-contain bg-black"
+                        poster={slackUrl(current.thumbnailUrl) ?? undefined}
+                      />
+                    ) : (
+                      <img
+                        key={current.id}
+                        src={slackUrl(current.imageUrl) ?? undefined}
+                        alt={caption}
+                        className="w-full aspect-auto max-h-[600px] object-contain"
+                      />
+                    )}
+                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent p-6">
+                      <p className="text-white text-sm font-medium drop-shadow line-clamp-2">
+                        {truncate(caption, 200)}
+                      </p>
+                    </div>
+
+                    {/* Carousel arrows */}
+                    {siblings.length > 1 && (
+                      <>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setCarouselIndex((i) => (i - 1 + siblings.length) % siblings.length); }}
+                          className="absolute left-3 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center text-white hover:bg-black/70 transition-colors"
+                        >
+                          <ChevronLeft className="h-5 w-5" />
+                        </button>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setCarouselIndex((i) => (i + 1) % siblings.length); }}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 h-10 w-10 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center text-white hover:bg-black/70 transition-colors"
+                        >
+                          <ChevronRight className="h-5 w-5" />
+                        </button>
+                        <div className="absolute top-3 right-3 bg-black/60 backdrop-blur-sm text-white text-xs font-medium px-2.5 py-1 rounded-full">
+                          {carouselIndex + 1} / {siblings.length}
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Thumbnail strip */}
+                  {siblings.length > 1 && (
+                    <div className="flex gap-2 mt-3 overflow-x-auto scrollbar-hide pb-1">
+                      {siblings.map((sib: any, idx: number) => (
+                        <button
+                          key={sib.id}
+                          onClick={() => setCarouselIndex(idx)}
+                          className={cn(
+                            "shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 transition-all",
+                            idx === carouselIndex
+                              ? "border-orange-500 ring-2 ring-orange-500/30"
+                              : "border-transparent opacity-60 hover:opacity-100"
+                          )}
+                        >
+                          <img
+                            src={slackUrl(sib.thumbnailUrl || sib.imageUrl) ?? undefined}
+                            alt={`Photo ${idx + 1}`}
+                            className="w-full h-full object-cover"
+                          />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
           {/* Sidebar */}
