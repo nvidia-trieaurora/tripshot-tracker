@@ -3,6 +3,7 @@ import { prisma } from "./db";
 export interface ScoringWeights {
   votingWeight: number;
   organizerWeight: number;
+  reactionWeight: number;
   maxOrganizerScore: number;
 }
 
@@ -15,8 +16,9 @@ export async function getScoringConfig(): Promise<ScoringWeights> {
     config = await prisma.scoringConfig.create({
       data: {
         id: "default",
-        votingWeight: 70,
-        organizerWeight: 30,
+        votingWeight: 80,
+        organizerWeight: 10,
+        reactionWeight: 10,
         maxOrganizerScore: 10,
       },
     });
@@ -25,6 +27,7 @@ export async function getScoringConfig(): Promise<ScoringWeights> {
   return {
     votingWeight: config.votingWeight,
     organizerWeight: config.organizerWeight,
+    reactionWeight: config.reactionWeight,
     maxOrganizerScore: config.maxOrganizerScore,
   };
 }
@@ -33,31 +36,19 @@ export async function computeFinalScore(photoEntryId: string): Promise<number> {
   const config = await getScoringConfig();
   const entry = await prisma.photoEntry.findUnique({
     where: { id: photoEntryId },
-    include: {
-      uniqueVotes: true,
-    },
+    include: { uniqueVotes: true, _count: { select: { reactions: true } } },
   });
 
   if (!entry) throw new Error("Photo entry not found");
 
-  const allEntries = await prisma.photoEntry.findMany({
-    where: { mediaType: "image" },
-    include: { uniqueVotes: true },
-  });
-
-  const maxVotes = Math.max(...allEntries.map((e) => e.uniqueVotes.length), 1);
-  const normalizedVotingScore = (entry.uniqueVotes.length / maxVotes) * 100;
-
-  let normalizedOrganizerScore = 0;
-  if (entry.organizerScore !== null && entry.organizerScore !== undefined) {
-    normalizedOrganizerScore =
-      (entry.organizerScore / config.maxOrganizerScore) * 100;
-  }
+  const uniqueVotes = entry.uniqueVotes.length;
+  const totalReactions = entry._count.reactions;
+  const organizerScore = entry.organizerScore ?? 0;
 
   const finalScore =
-    (normalizedVotingScore * config.votingWeight +
-      normalizedOrganizerScore * config.organizerWeight) /
-    100;
+    (config.votingWeight / 100) * uniqueVotes +
+    (config.organizerWeight / 100) * organizerScore +
+    (config.reactionWeight / 100) * totalReactions;
 
   return Math.round(finalScore * 100) / 100;
 }
@@ -65,32 +56,25 @@ export async function computeFinalScore(photoEntryId: string): Promise<number> {
 export async function recomputeAllScores(): Promise<void> {
   const entries = await prisma.photoEntry.findMany({
     where: { mediaType: "image" },
-    include: { uniqueVotes: true },
+    include: { uniqueVotes: true, _count: { select: { reactions: true } } },
   });
 
   const config = await getScoringConfig();
-  const maxVotes = Math.max(...entries.map((e) => e.uniqueVotes.length), 1);
 
   for (const entry of entries) {
-    const normalizedVotingScore =
-      (entry.uniqueVotes.length / maxVotes) * 100;
-    const teamVotingScore = entry.uniqueVotes.length;
-
-    let normalizedOrganizerScore = 0;
-    if (entry.organizerScore !== null && entry.organizerScore !== undefined) {
-      normalizedOrganizerScore =
-        (entry.organizerScore / config.maxOrganizerScore) * 100;
-    }
+    const uniqueVotes = entry.uniqueVotes.length;
+    const totalReactions = entry._count.reactions;
+    const organizerScore = entry.organizerScore ?? 0;
 
     const finalScore =
-      (normalizedVotingScore * config.votingWeight +
-        normalizedOrganizerScore * config.organizerWeight) /
-      100;
+      (config.votingWeight / 100) * uniqueVotes +
+      (config.organizerWeight / 100) * organizerScore +
+      (config.reactionWeight / 100) * totalReactions;
 
     await prisma.photoEntry.update({
       where: { id: entry.id },
       data: {
-        teamVotingScore,
+        teamVotingScore: uniqueVotes,
         finalScore: Math.round(finalScore * 100) / 100,
       },
     });

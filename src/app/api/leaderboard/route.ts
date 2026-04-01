@@ -33,10 +33,7 @@ export async function GET(request: NextRequest) {
         (a.finalScore ?? 0) >= (b.finalScore ?? 0) ? a : b
       );
 
-      // Sum votes and reactions across all photos in the post
-      const totalVotes = group.reduce((sum, e) => sum + (e._count?.uniqueVotes ?? 0), 0);
-      const totalReactions = group.reduce((sum, e) => sum + (e._count?.reactions ?? 0), 0);
-
+      // Use representative entry's counts (all photos in same post share the same reactions)
       return {
         ...best,
         photos: group.map((e) => ({
@@ -47,10 +44,6 @@ export async function GET(request: NextRequest) {
           mediaType: e.mediaType,
         })),
         photoCount: group.length,
-        _count: {
-          uniqueVotes: totalVotes,
-          reactions: totalReactions,
-        },
       };
     });
 

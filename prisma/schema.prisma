@@ -94,8 +94,9 @@ model UniqueVote {
 
 model ScoringConfig {
   id              String @id @default("default")
-  votingWeight    Float  @default(70)
-  organizerWeight Float  @default(30)
+  votingWeight    Float  @default(80)
+  organizerWeight Float  @default(10)
+  reactionWeight  Float  @default(10)
   maxOrganizerScore Float @default(10)
   updatedAt       DateTime @updatedAt
 }

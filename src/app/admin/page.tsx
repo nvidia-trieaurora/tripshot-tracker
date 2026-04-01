@@ -408,8 +408,9 @@ export default function AdminPage() {
   const autoSyncRef = useRef<NodeJS.Timeout | null>(null);
 
   // Settings tab
-  const [votingWeight, setVotingWeight] = useState(70);
-  const [organizerWeight, setOrganizerWeight] = useState(30);
+  const [votingWeight, setVotingWeight] = useState(80);
+  const [organizerWeight, setOrganizerWeight] = useState(10);
+  const [reactionWeight, setReactionWeight] = useState(10);
   const [saving, setSaving] = useState(false);
 
   // Stats
@@ -495,6 +496,7 @@ export default function AdminPage() {
         if (data.scoringConfig) {
           setVotingWeight(data.scoringConfig.votingWeight);
           setOrganizerWeight(data.scoringConfig.organizerWeight);
+          setReactionWeight(data.scoringConfig.reactionWeight ?? 10);
         }
       })
       .catch(() => {});
@@ -532,7 +534,7 @@ export default function AdminPage() {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          scoringConfig: { votingWeight, organizerWeight },
+          scoringConfig: { votingWeight, organizerWeight, reactionWeight },
         }),
       });
       addToast("Scoring weights saved", "success");
@@ -829,7 +831,7 @@ export default function AdminPage() {
               </h3>
               <div>
                 <label className="text-sm text-gray-600 dark:text-gray-400">
-                  Team Voting: <span className="font-bold text-orange-600">{votingWeight}%</span>
+                  Unique Votes: <span className="font-bold text-orange-600">{votingWeight}%</span>
                 </label>
                 <input
                   type="range"
@@ -838,8 +840,11 @@ export default function AdminPage() {
                   value={votingWeight}
                   onChange={(e) => {
                     const v = Number(e.target.value);
+                    const remaining = 100 - v;
                     setVotingWeight(v);
-                    setOrganizerWeight(100 - v);
+                    const orgRatio = organizerWeight / Math.max(organizerWeight + reactionWeight, 1);
+                    setOrganizerWeight(Math.round(remaining * orgRatio));
+                    setReactionWeight(remaining - Math.round(remaining * orgRatio));
                   }}
                   className="w-full mt-1 accent-orange-500"
                 />
@@ -851,19 +856,36 @@ export default function AdminPage() {
                 <input
                   type="range"
                   min={0}
-                  max={100}
+                  max={100 - votingWeight}
                   value={organizerWeight}
                   onChange={(e) => {
                     const v = Number(e.target.value);
                     setOrganizerWeight(v);
-                    setVotingWeight(100 - v);
+                    setReactionWeight(100 - votingWeight - v);
                   }}
                   className="w-full mt-1 accent-violet-500"
                 />
               </div>
+              <div>
+                <label className="text-sm text-gray-600 dark:text-gray-400">
+                  Total Reactions: <span className="font-bold text-rose-600">{reactionWeight}%</span>
+                </label>
+                <input
+                  type="range"
+                  min={0}
+                  max={100 - votingWeight}
+                  value={reactionWeight}
+                  onChange={(e) => {
+                    const v = Number(e.target.value);
+                    setReactionWeight(v);
+                    setOrganizerWeight(100 - votingWeight - v);
+                  }}
+                  className="w-full mt-1 accent-rose-500"
+                />
+              </div>
               <div className="flex items-center justify-between bg-gray-50 dark:bg-gray-800 rounded-xl px-4 py-3">
                 <span className="text-sm text-gray-600 dark:text-gray-400">
-                  Team {votingWeight}% + Organizer {organizerWeight}% = 100%
+                  Votes {votingWeight}% + Organizer {organizerWeight}% + Reactions {reactionWeight}% = {votingWeight + organizerWeight + reactionWeight}%
                 </span>
               </div>
               <button

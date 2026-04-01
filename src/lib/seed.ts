@@ -10,8 +10,9 @@ export async function ensureSeedData() {
   await prisma.scoringConfig.create({
     data: {
       id: "default",
-      votingWeight: 70,
-      organizerWeight: 30,
+      votingWeight: 80,
+      organizerWeight: 10,
+      reactionWeight: 10,
       maxOrganizerScore: 10,
     },
   });

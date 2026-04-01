@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { Trophy, Crown, Medal, Loader2, Users } from "lucide-react";
+import { Trophy, Crown, Medal, Loader2, Users, Heart } from "lucide-react";
 import { cn, getInitials } from "@/lib/utils";
 import { useSlackFormat } from "@/lib/useSlackFormat";
 
@@ -163,8 +163,8 @@ export default function LeaderboardPage() {
                       const podiumIdx = idx;
                       const isGold = actualRank === 1;
                       const user = entry.slackPost?.user;
-                      const votes =
-                        entry._count?.uniqueVotes ?? 0;
+                      const reactions =
+                        entry._count?.reactions ?? 0;
                       const caption = fmt(
                         entry.caption ??
                         entry.slackPost?.caption ??
@@ -252,8 +252,8 @@ export default function LeaderboardPage() {
                                 </p>
                               )}
                               <p className="text-xs text-gray-500 dark:text-gray-400 flex items-center justify-center gap-1">
-                                <Users className="h-3 w-3" />
-                                {votes} votes
+                                <Heart className="h-3 w-3" />
+                                {reactions} reactions
                               </p>
                             </div>
                           </motion.div>

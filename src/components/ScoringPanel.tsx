@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { Save, Loader2, CheckCircle } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Save, Loader2, CheckCircle, Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { CATEGORY_LABELS, CATEGORY_EMOJIS, type CategoryName } from "@/types";
 
@@ -31,6 +31,8 @@ export default function ScoringPanel({
   initialCategories = [],
   onSave,
 }: ScoringPanelProps) {
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
   const [creativity, setCreativity] = useState(initialScores?.creativity ?? 5);
   const [emotion, setEmotion] = useState(initialScores?.emotion ?? 5);
   const [storytelling, setStorytelling] = useState(
@@ -42,6 +44,14 @@ export default function ScoringPanel({
   );
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/auth/check")
+      .then((r) => r.json())
+      .then((data) => setIsAdmin(data.authenticated === true))
+      .catch(() => setIsAdmin(false))
+      .finally(() => setAuthChecked(true));
+  }, []);
 
   const toggleCategory = (cat: CategoryName) => {
     setCategories((prev) =>
@@ -77,6 +87,34 @@ export default function ScoringPanel({
     { label: "Emotion", value: emotion, set: setEmotion, key: "emotion" },
     { label: "Storytelling", value: storytelling, set: setStorytelling, key: "storytelling" },
   ] as const;
+
+  if (!authChecked) return null;
+
+  // Read-only view for non-admins
+  if (!isAdmin) {
+    if (!initialScores) return null;
+    return (
+      <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-5 space-y-4">
+        <div className="flex items-center gap-2">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+            Organizer Scoring
+          </h3>
+          <Lock className="h-4 w-4 text-gray-400" />
+        </div>
+        <div className="space-y-2">
+          {sliders.map((s) => (
+            <div key={s.key} className="flex items-center justify-between text-sm">
+              <span className="text-gray-600 dark:text-gray-400">{s.label}</span>
+              <span className="font-bold text-gray-900 dark:text-white">{s.value}/10</span>
+            </div>
+          ))}
+        </div>
+        {notes && (
+          <p className="text-sm text-gray-500 dark:text-gray-400 italic">&ldquo;{notes}&rdquo;</p>
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-5 space-y-5">

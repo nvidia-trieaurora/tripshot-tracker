@@ -71,6 +71,9 @@ export async function PUT(request: NextRequest) {
           ...(scoringConfigUpdate.organizerWeight !== undefined && {
             organizerWeight: scoringConfigUpdate.organizerWeight,
           }),
+          ...(scoringConfigUpdate.reactionWeight !== undefined && {
+            reactionWeight: scoringConfigUpdate.reactionWeight,
+          }),
           ...(scoringConfigUpdate.maxOrganizerScore !== undefined && {
             maxOrganizerScore: scoringConfigUpdate.maxOrganizerScore,
           }),
